@@ -4,8 +4,10 @@ import time
 
 # Configuraciones
 CMC_API_KEY = "049e888d-6afd-4626-8925-4971b565ff28"
-TELEGRAM_TOKEN = "7963696073:AAH06lU91oyHIpj6eDTw-vGvULnG7MBWNqc"
-TELEGRAM_CHAT_ID = "6947147145"
+import os
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Excluir monedas que no tienen par en Binance o son estables
 EXCLUIR = {"USDT", "DAI", "TUSD", "USDC", "BUSD", "FDUSD"}
