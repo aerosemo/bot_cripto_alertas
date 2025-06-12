@@ -3,9 +3,9 @@ import pandas as pd
 import time
 
 # Configuraciones
-CMC_API_KEY = "049e888d-6afd-4626-8925-4971b565ff28"
 import os
 
+CMC_API_KEY = os.getenv("CMC_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
