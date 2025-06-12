@@ -15,10 +15,17 @@ EXCLUIR = {"USDT", "DAI", "TUSD", "USDC", "BUSD", "FDUSD"}
 def obtener_top_200():
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    params = {"start": "1", "limit": "200", "convert": "USDT"}
+    params = {"start": "1", "limit": "200", "convert": "USD"}
+    
     r = requests.get(url, headers=headers, params=params)
-    data = r.json()["data"]
-    return [cripto['symbol'] for cripto in data if cripto['symbol'] not in EXCLUIR]
+    response = r.json()
+    
+    if "data" not in response:
+        print("❌ Error al obtener datos de CoinMarketCap:", response)
+        return []
+
+    return [cripto["symbol"] for cripto in response["data"] if cripto["symbol"] not in EXCLUIR]
+
 
 def obtener_velas_binance(symbol, intervalo="1h", total_velas=5000):
     url = "https://api.binance.com/api/v3/klines"
