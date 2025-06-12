@@ -20,14 +20,16 @@ logging.basicConfig(level=logging.INFO)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot cripto activo. Enviaré señales técnicas y movimientos del mercado.")
 
-    application = ApplicationBuilder().token(TOKEN).build()
+# Crear instancia del bot
+application = ApplicationBuilder().token(TOKEN).build()
 
-# Registrar comandos antes de arrancar
+# Registrar comando
 application.add_handler(CommandHandler("start", start))
 
-# Iniciar el bot antes de recibir mensajes (requerido con webhook)
+# Iniciar el bot con webhook
 loop.run_until_complete(application.initialize())
 loop.run_until_complete(application.start())
+
 
 
 # Obtener las 200 monedas más activas en Binance por volumen
