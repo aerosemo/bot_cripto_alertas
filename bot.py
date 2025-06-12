@@ -13,14 +13,23 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 flask_app = Flask(__name__)
 loop = asyncio.get_event_loop()
+
 application = ApplicationBuilder().token(TOKEN).build()
+
+# Registrar comandos antes de arrancar
+application.add_handler(CommandHandler("start", start))
+
+# Iniciar el bot antes de recibir mensajes (requerido con webhook)
+loop.run_until_complete(application.initialize())
+loop.run_until_complete(application.start())
+
+
 logging.basicConfig(level=logging.INFO)
 
 # Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot cripto activo. Enviaré señales técnicas y movimientos del mercado.")
 
-application.add_handler(CommandHandler("start", start))
 
 # Obtener las 200 monedas más activas en Binance por volumen
 def obtener_top_monedas():
