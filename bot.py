@@ -169,12 +169,18 @@ def webhook():
     loop.create_task(application.update_queue.put(update))
     return "OK"
 
-@flask_app.before_first_request
-def activar_webhook():
-    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
-    loop.run_until_complete(application.bot.set_webhook(webhook_url))
-    loop.create_task(analizar_todo())
-    loop.create_task(keep_alive())
+# Iniciar el bot (webhook y tareas)
+loop.run_until_complete(application.initialize())
+loop.run_until_complete(application.start())
+
+# Configurar el webhook inmediatamente
+webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
+loop.run_until_complete(application.bot.set_webhook(webhook_url))
+
+# Lanzar tareas del bot
+loop.create_task(analizar_todo())
+loop.create_task(keep_alive())
+
 
 # Servidor Flask
 if __name__ == "__main__":
