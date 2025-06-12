@@ -7,28 +7,14 @@ import time
 import os
 from telegram.ext import Updater, CommandHandler
 
-# Configuraciones
+# === Configuraciones ===
 CMC_API_KEY = os.getenv("CMC_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Excluir monedas que no tienen par en Binance o son estables
 EXCLUIR = {"USDT", "DAI", "TUSD", "USDC", "BUSD", "FDUSD"}
 
-def obtener_top_200():
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
-    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    params = {"start": "1", "limit": "200", "convert": "USD"}
-    
-    r = requests.get(url, headers=headers, params=params)
-    response = r.json()
-    
-    if "data" not in response:
-        print("❌ Error al obtener datos de CoinMarketCap:", response)
-        return []
-
-    return [cripto["symbol"] for cripto in response["data"] if cripto["symbol"] not in EXCLUIR]
-
+# === Funciones de análisis técnico (si las necesitás luego) ===
 def obtener_velas_binance(symbol, intervalo="1h", total_velas=5000):
     url = "https://api.binance.com/api/v3/klines"
     velas = []
@@ -62,64 +48,72 @@ def obtener_velas_binance(symbol, intervalo="1h", total_velas=5000):
         df[col] = df[col].astype(float)
     return df
 
-def calcular_ema(df, periodo=20):
-    return df["close"].ewm(span=periodo, adjust=False).mean()
-
-def detectar_rechazo(df):
-    if df is None or len(df) < 100:
-        return None
-
-    soporte = df["low"].rolling(window=100).min().iloc[-1]
-    resistencia = df["high"].rolling(window=100).max().iloc[-1]
-    precio_actual = df["close"].iloc[-1]
-    volumen_actual = df["volume"].iloc[-1]
-    ema = calcular_ema(df).iloc[-1]
-    volumen_medio = df["volume"].rolling(window=20).mean().iloc[-1]
-
-    if soporte * 0.995 <= precio_actual <= soporte * 1.005 and precio_actual > df["open"].iloc[-1] and volumen_actual > volumen_medio * 1.5:
-        return f"🟢 Rechazo en SOPORTE: {precio_actual:.2f} | Volumen alto | EMA: {ema:.2f}"
-    elif resistencia * 0.995 <= precio_actual <= resistencia * 1.005 and precio_actual < df["open"].iloc[-1] and volumen_actual > volumen_medio * 1.5:
-        return f"🔴 Rechazo en RESISTENCIA: {precio_actual:.2f} | Volumen alto | EMA: {ema:.2f}"
-    return None
-
+# === Alerta a Telegram ===
 def enviar_alerta(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje}
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"}
     requests.post(url, data=data)
 
-def ejecutar_bot():
-    symbols = obtener_top_200()
-    for symbol in symbols:
-        pair = symbol + "USDT"
-        try:
-            df = obtener_velas_binance(pair)
-            señal = detectar_rechazo(df)
-            if señal:
-                enviar_alerta(f"{symbol}/USDT - {señal}")
-        except Exception:
-            continue  # Silenciar cualquier error y seguir con la siguiente
-
-# Comando para verificar que el bot está vivo
+# === Comando /start ===
 def start(update, context):
     update.message.reply_text("🤖 ¡Bot de alertas activado correctamente!")
 
-# Simula un puerto para Render (truco)
+# === Comando /movimientos ===
+def movimientos(update, context):
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+    params = {"start": "1", "limit": "200", "convert": "USD"}
+
+    try:
+        r = requests.get(url, headers=headers, params=params)
+        data = r.json().get("data", [])
+    except Exception:
+        update.message.reply_text("❌ Error al consultar CoinMarketCap.")
+        return
+
+    cambios = []
+    for cripto in data:
+        symbol = cripto["symbol"]
+        if symbol in EXCLUIR:
+            continue
+        cambio_1h = cripto["quote"]["USD"].get("percent_change_1h", None)
+        if cambio_1h is not None:
+            cambios.append((symbol, cambio_1h))
+
+    cambios.sort(key=lambda x: x[1], reverse=True)
+    top_subas = cambios[:5]
+    top_bajas = cambios[-5:]
+
+    mensaje = "📊 *Top 5 que más subieron en 1h:*\n"
+    for sym, pct in top_subas:
+        mensaje += f"🟢 {sym}: +{pct:.2f}%\n"
+
+    mensaje += "\n📉 *Top 5 que más bajaron en 1h:*\n"
+    for sym, pct in top_bajas:
+        mensaje += f"🔻 {sym}: {pct:.2f}%\n"
+
+    context.bot.send_message(chat_id=update.effective_chat.id, text=mensaje, parse_mode="Markdown")
+
+# === Keep-alive para Render ===
 def keep_alive():
     handler = http.server.SimpleHTTPRequestHandler
     with socketserver.TCPServer(("", 10000), handler) as httpd:
         httpd.serve_forever()
 
+# === Main del bot ===
 def main():
     if not TELEGRAM_TOKEN:
         print("❌ No se encontró el token de Telegram.")
         return
 
+    threading.Thread(target=keep_alive).start()
+
     updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
-    dispatcher.add_handler(CommandHandler("start", start))
 
-    ejecutar_bot()  # Lanza escaneo inicial
-    threading.Thread(target=keep_alive).start()  # Mantiene el bot vivo en Render
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("movimientos", movimientos))
+
     updater.start_polling()
     updater.idle()
 
