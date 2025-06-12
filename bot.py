@@ -1,10 +1,10 @@
 import requests
 import pandas as pd
 import time
+import os
+from telegram.ext import Updater, CommandHandler
 
 # Configuraciones
-import os
-
 CMC_API_KEY = os.getenv("CMC_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -25,7 +25,6 @@ def obtener_top_200():
         return []
 
     return [cripto["symbol"] for cripto in response["data"] if cripto["symbol"] not in EXCLUIR]
-
 
 def obtener_velas_binance(symbol, intervalo="1h", total_velas=5000):
     url = "https://api.binance.com/api/v3/klines"
@@ -97,4 +96,26 @@ def ejecutar_bot():
         except Exception:
             continue  # Silenciar cualquier error y seguir con la siguiente
 
-ejecutar_bot()
+# 🚀 Agregamos un comando de Telegram para verificar que el bot responde
+def start(update, context):
+    update.message.reply_text("🤖 ¡Bot de alertas activado correctamente!")
+
+def main():
+    if not TELEGRAM_TOKEN:
+        print("❌ No se encontró el token de Telegram.")
+        return
+
+    updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+
+    dispatcher.add_handler(CommandHandler("start", start))
+
+    # Ejecutamos el análisis al iniciar
+    ejecutar_bot()
+
+    # Ponemos el bot a escuchar mensajes
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
