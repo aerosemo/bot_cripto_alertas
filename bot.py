@@ -171,7 +171,6 @@ def webhook():
 
 # Iniciar el bot (webhook y tareas)
 loop.run_until_complete(application.initialize())
-loop.run_until_complete(application.start())
 
 # Configurar el webhook inmediatamente
 webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
