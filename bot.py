@@ -1,3 +1,6 @@
+import http.server
+import socketserver
+import threading
 import requests
 import pandas as pd
 import time
@@ -96,9 +99,15 @@ def ejecutar_bot():
         except Exception:
             continue  # Silenciar cualquier error y seguir con la siguiente
 
-# 🚀 Agregamos un comando de Telegram para verificar que el bot responde
+# Comando para verificar que el bot está vivo
 def start(update, context):
     update.message.reply_text("🤖 ¡Bot de alertas activado correctamente!")
+
+# Simula un puerto para Render (truco)
+def keep_alive():
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", 10000), handler) as httpd:
+        httpd.serve_forever()
 
 def main():
     if not TELEGRAM_TOKEN:
@@ -107,13 +116,10 @@ def main():
 
     updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
     dispatcher = updater.dispatcher
-
     dispatcher.add_handler(CommandHandler("start", start))
 
-    # Ejecutamos el análisis al iniciar
-    ejecutar_bot()
-
-    # Ponemos el bot a escuchar mensajes
+    ejecutar_bot()  # Lanza escaneo inicial
+    threading.Thread(target=keep_alive).start()  # Mantiene el bot vivo en Render
     updater.start_polling()
     updater.idle()
 
