@@ -172,7 +172,7 @@ def webhook():
 @flask_app.before_first_request
 def activar_webhook():
     webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
-    asyncio.run(application.bot.set_webhook(webhook_url))
+    loop.run_until_complete(application.bot.set_webhook(webhook_url))
     loop.create_task(analizar_todo())
     loop.create_task(keep_alive())
 
