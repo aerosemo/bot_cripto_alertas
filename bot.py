@@ -4,27 +4,22 @@ import asyncio
 import logging
 import requests
 import pandas as pd
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+BASE_URL = "https://api.bitget.com/api/v2/market/candles"
+SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'SHIBUSDT', 'DOTUSDT', 'TRXUSDT', 'LINKUSDT', 'MATICUSDT', 'NEARUSDT', 'LTCUSDT', 'UNIUSDT', 'BCHUSDT', 'ICPUSDT', 'PEPEUSDT', 'FILUSDT']
 ALERT_INTERVAL = 60 * 14
 CHECK_INTERVAL = 60 * 5
-BASE_URL = "https://api.bitget.com/api/v2/market/candles"
 
-SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "SHIBUSDT", "DOTUSDT",
-    "TRXUSDT", "LINKUSDT", "MATICUSDT", "NEARUSDT", "LTCUSDT",
-    "UNIUSDT", "BCHUSDT", "ICPUSDT", "PEPEUSDT", "FILUSDT"
-]
+logging.basicConfig(level=logging.INFO)
 
 def get_klines(symbol="BTCUSDT", limit=5000):
-    bitget_symbol = symbol + "_SPBL"
     params = {
-        "symbol": bitget_symbol,
+        "symbol": symbol,
         "granularity": "3600",
         "limit": str(limit)
     }
@@ -32,8 +27,6 @@ def get_klines(symbol="BTCUSDT", limit=5000):
         response = requests.get(BASE_URL, params=params)
         response.raise_for_status()
         result = response.json()
-        if "data" not in result or not result["data"]:
-            raise ValueError(f"No hay datos válidos para {symbol}")
         return result["data"][::-1]
     except Exception as e:
         print(f"❌ Error al obtener velas para {symbol}: {e}")
@@ -90,9 +83,9 @@ async def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
 
-async def heartbeat(bot: Bot, chat_id: str):
+async def heartbeat():
     while True:
-        await bot.send_message(chat_id=chat_id, text="✅ Bot despierto")
+        await send_telegram("✅ Bot despierto")
         await asyncio.sleep(ALERT_INTERVAL)
 
 async def auto_analyze():
@@ -128,9 +121,8 @@ async def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("nivel", handle_nivel))
     asyncio.create_task(auto_analyze())
-    asyncio.create_task(heartbeat(app.bot, TELEGRAM_CHAT_ID))
+    asyncio.create_task(heartbeat())
     await app.run_polling()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
