@@ -9,28 +9,18 @@ import pandas as pd
 import numpy as np
 
 # Configuración inicial
-TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 flask_app = Flask(__name__)
 loop = asyncio.get_event_loop()
-
+application = ApplicationBuilder().token(TOKEN).build()
 logging.basicConfig(level=logging.INFO)
 
 # Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot cripto activo. Enviaré señales técnicas y movimientos del mercado.")
 
-# Crear instancia del bot
-application = ApplicationBuilder().token(TOKEN).build()
-
-# Registrar comando
 application.add_handler(CommandHandler("start", start))
-
-# Iniciar el bot con webhook
-loop.run_until_complete(application.initialize())
-loop.run_until_complete(application.start())
-
-
 
 # Obtener las 200 monedas más activas en Binance por volumen
 def obtener_top_monedas():
@@ -46,15 +36,14 @@ def obtener_top_monedas():
 def calcular_ema(data, periodo):
     return pd.Series(data).ewm(span=periodo, adjust=False).mean()
 
-# Analizar una cripto
+# Analizar una cripto individualmente
 def analizar_moneda(symbol):
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={"symbol": symbol, "interval": "1h", "limit": 500}, timeout=10).json()
         df = pd.DataFrame(r, columns=[
             "timestamp", "open", "high", "low", "close", "volume",
-            "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"
-        ])
+            "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"])
         df["close"] = df["close"].astype(float)
         df["low"] = df["low"].astype(float)
         df["high"] = df["high"].astype(float)
@@ -62,7 +51,6 @@ def analizar_moneda(symbol):
         df["EMA50"] = calcular_ema(df["close"], 50)
         df["EMA200"] = calcular_ema(df["close"], 200)
 
-        # Soportes / resistencias
         soportes, resistencias = [], []
         for i in range(2, len(df)-2):
             if df["low"][i] < df["low"][i-1] and df["low"][i] < df["low"][i+1] and df["low"][i-1] < df["low"][i-2] and df["low"][i+1] < df["low"][i+2]:
@@ -90,15 +78,13 @@ def analizar_moneda(symbol):
         elif abs(precio - df["EMA200"].iloc[-1])/precio < 0.01:
             ema = "EMA 200"
 
-        # Rechazo técnico
         for _, zona in zonas_s + zonas_r:
-            tipo = "soporte" if (_ , zona) in zonas_s else "resistencia"
+            tipo = "soporte" if (_, zona) in zonas_s else "resistencia"
             if abs(precio - zona)/zona < 0.005 and vol_actual > 1.5 * vol_prom:
                 return f"🔔 Rechazo en zona de {tipo.upper()} para {symbol} con alto volumen ({ema})"
 
-        # Acercamiento
         for _, zona in zonas_s + zonas_r:
-            tipo = "soporte" if (_ , zona) in zonas_s else "resistencia"
+            tipo = "soporte" if (_, zona) in zonas_s else "resistencia"
             if 0.005 < abs(precio - zona)/zona < 0.015:
                 return f"⚠️ {symbol} se acerca a zona de {tipo.upper()} (a menos de 1.5%)"
 
@@ -108,25 +94,10 @@ def analizar_moneda(symbol):
         logging.error(f"Error en {symbol}: {e}")
         return None
 
-# Análisis periódico de señales
-async def analizar_todo():
-    while True:
-        symbols = obtener_top_monedas()
-        for symbol in symbols:
-            senal = analizar_moneda(symbol)
-            if senal:
-                try:
-                    await application.bot.send_message(chat_id=CHAT_ID, text=senal)
-                except Exception as e:
-                    logging.error(f"Error enviando señal: {e}")
-        await asyncio.sleep(300)
-
-# Top movimientos en la última hora
+# Análisis periódico
 def top_movimientos():
     try:
         res = requests.get("https://api.binance.com/api/v3/ticker", timeout=10).json()
-        ultimos = {r["symbol"]: float(r["price"]) for r in res if r["symbol"].endswith("USDT")}
-
         variaciones = []
         for symbol in obtener_top_monedas():
             r = requests.get("https://api.binance.com/api/v3/klines", params={"symbol": symbol, "interval": "1h", "limit": 2}, timeout=10).json()
@@ -152,7 +123,18 @@ def top_movimientos():
         logging.error(f"Error en top movimientos: {e}")
         return "📊 No se pudieron calcular los movimientos."
 
-# Keep-alive cada 14 minutos
+async def analizar_todo():
+    while True:
+        symbols = obtener_top_monedas()
+        for symbol in symbols:
+            senal = analizar_moneda(symbol)
+            if senal:
+                try:
+                    await application.bot.send_message(chat_id=CHAT_ID, text=senal)
+                except Exception as e:
+                    logging.error(f"Error enviando señal: {e}")
+        await asyncio.sleep(300)
+
 async def keep_alive():
     while True:
         await asyncio.sleep(840)
@@ -162,7 +144,7 @@ async def keep_alive():
         except Exception as e:
             logging.error(f"Error en keep-alive: {e}")
 
-# Webhook de Telegram
+# Webhook correcto
 @flask_app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     json_update = request.get_json(force=True)
@@ -170,18 +152,12 @@ def webhook():
     loop.create_task(application.process_update(update))
     return "OK"
 
-
-# Iniciar el bot (webhook y tareas)
+# Lanzar bot y tareas
 loop.run_until_complete(application.initialize())
-
-# Configurar el webhook inmediatamente
 webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
 loop.run_until_complete(application.bot.set_webhook(webhook_url))
-
-# Lanzar tareas del bot
 loop.create_task(analizar_todo())
 loop.create_task(keep_alive())
-
 
 # Servidor Flask
 if __name__ == "__main__":
