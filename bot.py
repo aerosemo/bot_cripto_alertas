@@ -7,32 +7,27 @@ import numpy as np
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-import os
-from dotenv import load_dotenv
-load_dotenv()
-
+# 🔐 Variables desde el entorno (Render)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
 
-
-# Configuración básica
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
+# 🔧 Configuración
 logging.basicConfig(level=logging.INFO)
 application = ApplicationBuilder().token(TOKEN).build()
 
-# Comando /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot cripto activo. Enviaré señales técnicas y movimientos del mercado.")
 
 application.add_handler(CommandHandler("start", start))
 
-# Calcular EMA
+# EMA
 def calcular_ema(data, periodo):
     return pd.Series(data).ewm(span=periodo, adjust=False).mean()
 
-# Obtener top 200 monedas por volumen
+# Top monedas
 def obtener_top_monedas():
     try:
         res = requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10)
@@ -42,10 +37,10 @@ def obtener_top_monedas():
         ordenadas = sorted(usdt, key=lambda x: float(x["quoteVolume"]), reverse=True)
         return [s["symbol"] for s in ordenadas[:200]]
     except Exception as e:
-        logging.error(f"ERROR: Error obteniendo top monedas: {e}")
+        logging.error(f"ERROR obteniendo top monedas: {e}")
         return []
 
-# Análisis técnico por moneda
+# Análisis técnico
 def analizar_moneda(symbol):
     try:
         url = "https://api.binance.com/api/v3/klines"
@@ -104,7 +99,7 @@ def analizar_moneda(symbol):
         logging.warning(f"⚠️ Error analizando {symbol}: {e}")
         return None
 
-# Top movimientos
+# Movimientos top
 def top_movimientos():
     try:
         res = requests.get("https://api.binance.com/api/v3/ticker", timeout=10).json()
@@ -133,17 +128,7 @@ def top_movimientos():
         logging.error(f"Error en top movimientos: {e}")
         return "📊 No se pudieron calcular los movimientos."
 
-# Keep-alive
-async def keep_alive():
-    while True:
-        await asyncio.sleep(840)  # 14 minutos
-        try:
-            resumen = top_movimientos()
-            await application.bot.send_message(chat_id=CHAT_ID, text=f"✅ Bot activo...\n\n{resumen}", parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Error en keep-alive: {e}")
-
-# Análisis de señales
+# Señales periódicas
 async def analizar_todo():
     while True:
         symbols = obtener_top_monedas()
@@ -156,9 +141,18 @@ async def analizar_todo():
                     logging.error(f"Error enviando señal: {e}")
         await asyncio.sleep(300)
 
-# Lanzar bot
+# Keep-alive cada 14 minutos
+async def keep_alive():
+    while True:
+        await asyncio.sleep(840)
+        try:
+            resumen = top_movimientos()
+            await application.bot.send_message(chat_id=CHAT_ID, text=f"✅ Bot activo...\n\n{resumen}", parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"Error en keep-alive: {e}")
+
+# Ejecutar
 if __name__ == "__main__":
-    application.add_handler(CommandHandler("start", start))
     loop = asyncio.get_event_loop()
     loop.create_task(analizar_todo())
     loop.create_task(keep_alive())
