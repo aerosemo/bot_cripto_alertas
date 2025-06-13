@@ -1,3 +1,4 @@
+
 import os
 import asyncio
 import logging
@@ -11,23 +12,26 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-ALERT_INTERVAL = 60 * 14  # 14 minutos
-CHECK_INTERVAL = 60 * 5   # cada 5 minutos
-
+ALERT_INTERVAL = 60 * 14
+CHECK_INTERVAL = 60 * 5
 BASE_URL = "https://api.bitget.com/api/v2/market/candles"
 
 def get_klines(symbol="BTCUSDT", limit=5000):
+    pair = symbol if "_UMCBL" in symbol else symbol + "_UMCBL"
     params = {
-        "symbol": symbol + "_UMCBL",
+        "symbol": pair,
         "granularity": "3600",
         "limit": str(limit)
     }
     try:
         r = requests.get(BASE_URL, params=params)
-        data = r.json()["data"]
-        return data[::-1]  # ordenar cronológicamente
+        r.raise_for_status()
+        result = r.json()
+        if "data" not in result or not result["data"]:
+            raise ValueError(f"Sin datos válidos para {symbol}")
+        return result["data"][::-1]
     except Exception as e:
-        print(f"Error al obtener velas para {symbol}: {e}")
+        print(f"❌ Error al obtener velas para {symbol}: {e}")
         return []
 
 def prepare_dataframe(data):
