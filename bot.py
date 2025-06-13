@@ -6,30 +6,33 @@ import pandas as pd
 import numpy as np
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from pybit.unified_trading import HTTP
 from datetime import datetime
 
-BYBIT_API_KEY = os.getenv("BYBIT_API_KEY")
-BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 ALERT_INTERVAL = 60 * 14  # 14 minutos
 CHECK_INTERVAL = 60 * 5   # cada 5 minutos
 
-client = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+BASE_URL = "https://api.bitget.com/api/v2/market/candles"
 
-def get_klines(symbol="BTCUSDT", interval="60", limit=5000):
+def get_klines(symbol="BTCUSDT", limit=5000):
+    params = {
+        "symbol": symbol + "_UMCBL",
+        "granularity": "3600",
+        "limit": str(limit)
+    }
     try:
-        response = client.get_kline(category="linear", symbol=symbol, interval=interval, limit=limit)
-        return response["result"]["list"]
+        r = requests.get(BASE_URL, params=params)
+        data = r.json()["data"]
+        return data[::-1]  # ordenar cronológicamente
     except Exception as e:
         print(f"Error al obtener velas para {symbol}: {e}")
         return []
 
 def prepare_dataframe(data):
     df = pd.DataFrame(data, columns=[
-        "timestamp", "open", "high", "low", "close", "volume", "turnover"
+        "timestamp", "open", "high", "low", "close", "volume", "_"
     ])
     df = df.astype(float)
     df["ema20"] = df["close"].ewm(span=20).mean()
@@ -63,7 +66,7 @@ def get_rejection_signal(df, supports, resistances):
     return signal
 
 async def analyze_and_alert():
-    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ARBUSDT", "VIRTUALUSDT"]
+    symbols = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "ARBUSDT", "VIRTUALUSDT"]
     for symbol in symbols:
         data = get_klines(symbol=symbol)
         if not data:
