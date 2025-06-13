@@ -165,9 +165,11 @@ async def keep_alive():
 # Webhook de Telegram
 @flask_app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    update = request.get_json(force=True)
-    loop.create_task(application.update_queue.put(update))
+    json_update = request.get_json(force=True)
+    update = Update.de_json(json_update, application.bot)
+    loop.create_task(application.process_update(update))
     return "OK"
+
 
 # Iniciar el bot (webhook y tareas)
 loop.run_until_complete(application.initialize())
