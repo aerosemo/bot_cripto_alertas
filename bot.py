@@ -23,9 +23,16 @@ application.add_handler(CommandHandler("start", start))
 # Obtener top 200 monedas por volumen
 def obtener_top_monedas():
     try:
-        res = requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10).json()
-        res = sorted([s for s in res if s["symbol"].endswith("USDT")], key=lambda x: float(x["quoteVolume"]), reverse=True)
-        return [s["symbol"] for s in res[:200]]
+        res = requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10)
+        if res.status_code != 200:
+            logging.error(f"Respuesta inválida de Binance: {res.status_code}")
+            return []
+        data = res.json()
+        if not isinstance(data, list):
+            logging.error("Formato inesperado de la respuesta de Binance")
+            return []
+        data = sorted([s for s in data if s.get("symbol", "").endswith("USDT") and "quoteVolume" in s], key=lambda x: float(x["quoteVolume"]), reverse=True)
+        return [s["symbol"] for s in data[:200]]
     except Exception as e:
         logging.error(f"Error obteniendo top monedas: {e}")
         return []
