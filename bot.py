@@ -97,8 +97,7 @@ async def handle_nivel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     df = data["df"]
     price = df["close"].iloc[-1]
     support, resistance = find_closest_levels(df, data["supports"], data["resistances"], price)
-    response = f"🔍 Niveles para {symbol} (precio actual ${price:.4f}):
-"
+    response = f"🔍 Niveles para {symbol} (precio actual ${price:.4f}):\n"
     if support:
         ema_s = closest_ema_label(df, support[0])
         response += f"📉 Soporte: ${support[0]:.4f}" + (f" (cerca de {ema_s})" if ema_s else "") + "
