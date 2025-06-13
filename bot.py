@@ -4,10 +4,8 @@ import asyncio
 import logging
 import requests
 import pandas as pd
-import numpy as np
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from datetime import datetime
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -16,8 +14,15 @@ ALERT_INTERVAL = 60 * 14
 CHECK_INTERVAL = 60 * 5
 BASE_URL = "https://api.bitget.com/api/v2/market/candles"
 
+SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "SHIBUSDT", "DOTUSDT",
+    "TRXUSDT", "LINKUSDT", "MATICUSDT", "NEARUSDT", "LTCUSDT",
+    "UNIUSDT", "BCHUSDT", "ICPUSDT", "PEPEUSDT", "FILUSDT"
+]
+
 def get_klines(symbol="BTCUSDT", limit=5000):
-    bitget_symbol = symbol + "_UMCBL"
+    bitget_symbol = symbol + "_SPBL"
     params = {
         "symbol": bitget_symbol,
         "granularity": "3600",
@@ -70,8 +75,7 @@ def get_rejection_signal(df, supports, resistances):
     return signal
 
 async def analyze_and_alert():
-    symbols = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "ARBUSDT", "VIRTUALUSDT"]
-    for symbol in symbols:
+    for symbol in SYMBOLS:
         data = get_klines(symbol=symbol)
         if not data:
             continue
@@ -101,6 +105,9 @@ async def handle_nivel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Especificá un símbolo. Ej: /nivel BTCUSDT")
         return
     symbol = context.args[0].upper()
+    if symbol not in SYMBOLS:
+        await update.message.reply_text(f"❌ {symbol} no está en la lista de activos del bot.")
+        return
     data = get_klines(symbol)
     if not data:
         await update.message.reply_text(f"❌ No se pudo obtener datos de {symbol}")
