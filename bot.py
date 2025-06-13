@@ -1,159 +1,127 @@
 import os
+import time
 import logging
 import asyncio
 import requests
-import pandas as pd
 import numpy as np
-from telegram import Update
+import pandas as pd
+from binance import AsyncClient
+from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from datetime import datetime
 
-# 🔐 Variables desde el entorno (Render)
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-API_KEY = os.getenv("BINANCE_API_KEY")
-API_SECRET = os.getenv("BINANCE_API_SECRET")
+# Configuración inicial
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 
-# 🔧 Configuración
 logging.basicConfig(level=logging.INFO)
-application = ApplicationBuilder().token(TOKEN).build()
+symbols_data = {}
+last_update_time = 0
 
-# /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Bot cripto activo. Enviaré señales técnicas y movimientos del mercado.")
+# Parámetros de análisis
+NUM_CANDLES = 5000
+TIMEFRAME = "1h"
+REJECTION_THRESHOLD = 1.5  # %
+ALERT_INTERVAL = 60 * 14  # 14 minutos
 
-application.add_handler(CommandHandler("start", start))
+# Calcular EMAs
+def calculate_emas(df):
+    df["EMA20"] = df["close"].ewm(span=20).mean()
+    df["EMA50"] = df["close"].ewm(span=50).mean()
+    df["EMA100"] = df["close"].ewm(span=100).mean()
+    df["EMA200"] = df["close"].ewm(span=200).mean()
+    return df
 
-# EMA
-def calcular_ema(data, periodo):
-    return pd.Series(data).ewm(span=periodo, adjust=False).mean()
+# Detectar soportes y resistencias
+def find_levels(df):
+    supports, resistances = [], []
+    for i in range(2, len(df) - 2):
+        if df["low"][i] < df["low"][i-1] and df["low"][i] < df["low"][i+1]:
+            supports.append((df["low"][i], i))
+        if df["high"][i] > df["high"][i-1] and df["high"][i] > df["high"][i+1]:
+            resistances.append((df["high"][i], i))
+    return supports, resistances
 
-# Top monedas
-def obtener_top_monedas():
-    try:
-        res = requests.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        usdt = [s for s in data if s["symbol"].endswith("USDT")]
-        ordenadas = sorted(usdt, key=lambda x: float(x["quoteVolume"]), reverse=True)
-        return [s["symbol"] for s in ordenadas[:200]]
-    except Exception as e:
-        logging.error(f"ERROR obteniendo top monedas: {e}")
-        return []
+# Buscar niveles fuertes cercanos
+def find_closest_levels(df, supports, resistances, price):
+    closest_support = min(supports, key=lambda x: abs(x[0] - price), default=None)
+    closest_resistance = min(resistances, key=lambda x: abs(x[0] - price), default=None)
+    return closest_support, closest_resistance
 
-# Análisis técnico
-def analizar_moneda(symbol):
-    try:
-        url = "https://api.binance.com/api/v3/klines"
-        r = requests.get(url, params={"symbol": symbol, "interval": "1h", "limit": 500}, timeout=10)
-        r.raise_for_status()
-        df = pd.DataFrame(r.json(), columns=[
-            "timestamp", "open", "high", "low", "close", "volume",
-            "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"
-        ])
+def closest_ema_label(df, level_price):
+    emas = {
+        "EMA20": df["EMA20"].iloc[-1],
+        "EMA50": df["EMA50"].iloc[-1],
+        "EMA100": df["EMA100"].iloc[-1],
+        "EMA200": df["EMA200"].iloc[-1]
+    }
+    closest = min(emas.items(), key=lambda x: abs(x[1] - level_price))
+    return closest[0] if abs(closest[1] - level_price) / level_price < 0.02 else None
+
+# Cargar datos de Binance
+async def load_data():
+    global symbols_data, last_update_time
+    client = await AsyncClient.create(BINANCE_API_KEY, BINANCE_API_SECRET)
+    tickers = await client.get_ticker()
+    sorted_symbols = sorted([t for t in tickers if t["symbol"].endswith("USDT")],
+                            key=lambda x: float(x["quoteVolume"]), reverse=True)[:200]
+
+    for ticker in sorted_symbols:
+        symbol = ticker["symbol"]
+        klines = await client.get_klines(symbol=symbol, interval=TIMEFRAME, limit=NUM_CANDLES)
+        df = pd.DataFrame(klines, columns=["time", "open", "high", "low", "close",
+                                           "volume", "_", "_", "_", "_", "_", "_"])
         df["close"] = df["close"].astype(float)
         df["low"] = df["low"].astype(float)
         df["high"] = df["high"].astype(float)
         df["volume"] = df["volume"].astype(float)
-        df["EMA50"] = calcular_ema(df["close"], 50)
-        df["EMA200"] = calcular_ema(df["close"], 200)
+        df = calculate_emas(df)
+        supports, resistances = find_levels(df)
+        symbols_data[symbol] = {"df": df, "supports": supports, "resistances": resistances}
+    last_update_time = time.time()
+    await client.close_connection()
 
-        soportes, resistencias = [], []
-        for i in range(2, len(df) - 2):
-            if df["low"][i] < df["low"][i - 1] and df["low"][i] < df["low"][i + 1] and df["low"][i - 1] < df["low"][i - 2] and df["low"][i + 1] < df["low"][i + 2]:
-                soportes.append((i, df["low"][i]))
-            if df["high"][i] > df["high"][i - 1] and df["high"][i] > df["high"][i + 1] and df["high"][i - 1] > df["high"][i - 2] and df["high"][i + 1] > df["high"][i + 2]:
-                resistencias.append((i, df["high"][i]))
+# Comando /nivel
+async def handle_nivel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) == 0:
+        await update.message.reply_text("⚠️ Tenés que escribir un símbolo, por ejemplo: /nivel BTC")
+        return
+    symbol = context.args[0].upper()
+    if not symbol.endswith("USDT"):
+        symbol += "USDT"
+    if symbol not in symbols_data:
+        await update.message.reply_text(f"❌ No se encontró la moneda {symbol}")
+        return
+    data = symbols_data[symbol]
+    df = data["df"]
+    price = df["close"].iloc[-1]
+    support, resistance = find_closest_levels(df, data["supports"], data["resistances"], price)
+    response = f"🔍 Niveles para {symbol} (precio actual ${price:.4f}):
+"
+    if support:
+        ema_s = closest_ema_label(df, support[0])
+        response += f"📉 Soporte: ${support[0]:.4f}" + (f" (cerca de {ema_s})" if ema_s else "") + "
+"
+    if resistance:
+        ema_r = closest_ema_label(df, resistance[0])
+        response += f"📈 Resistencia: ${resistance[0]:.4f}" + (f" (cerca de {ema_r})" if ema_r else "") + "
+"
+    await update.message.reply_text(response)
 
-        def zonas_clave(niveles):
-            zonas = []
-            for i in niveles:
-                if not any(abs(i[1] - z[1]) / z[1] < 0.015 for z in zonas):
-                    zonas.append(i)
-            return zonas
-
-        zonas_s = zonas_clave(soportes)
-        zonas_r = zonas_clave(resistencias)
-
-        precio = df["close"].iloc[-1]
-        vol_actual = df["volume"].iloc[-1]
-        vol_prom = df["volume"].rolling(20).mean().iloc[-1]
-
-        ema = ""
-        if abs(precio - df["EMA50"].iloc[-1]) / precio < 0.01:
-            ema = "EMA 50"
-        elif abs(precio - df["EMA200"].iloc[-1]) / precio < 0.01:
-            ema = "EMA 200"
-
-        for _, zona in zonas_s + zonas_r:
-            tipo = "soporte" if (_ , zona) in zonas_s else "resistencia"
-            if abs(precio - zona) / zona < 0.005 and vol_actual > 1.5 * vol_prom:
-                return f"🔔 Rechazo en zona de {tipo.upper()} para {symbol} con alto volumen ({ema})"
-
-        for _, zona in zonas_s + zonas_r:
-            tipo = "soporte" if (_ , zona) in zonas_s else "resistencia"
-            if 0.005 < abs(precio - zona) / zona < 0.015:
-                return f"⚠️ {symbol} se acerca a zona de {tipo.upper()} (a menos de 1.5%)"
-
-        return None
-    except Exception as e:
-        logging.warning(f"⚠️ Error analizando {symbol}: {e}")
-        return None
-
-# Movimientos top
-def top_movimientos():
-    try:
-        res = requests.get("https://api.binance.com/api/v3/ticker", timeout=10).json()
-        variaciones = []
-        for symbol in obtener_top_monedas():
-            r = requests.get("https://api.binance.com/api/v3/klines", params={"symbol": symbol, "interval": "1h", "limit": 2}, timeout=10).json()
-            if len(r) < 2:
-                continue
-            open_ = float(r[0][1])
-            close = float(r[1][4])
-            cambio = ((close - open_) / open_) * 100
-            variaciones.append((symbol, cambio))
-
-        top_up = sorted(variaciones, key=lambda x: x[1], reverse=True)[:5]
-        top_down = sorted(variaciones, key=lambda x: x[1])[:5]
-
-        texto = "📊 *Movimientos en la última hora:*\n\n🔼 *Subidas:*\n"
-        for s, c in top_up:
-            texto += f"{s}: +{c:.2f}%\n"
-        texto += "\n🔽 *Bajadas:*\n"
-        for s, c in top_down:
-            texto += f"{s}: {c:.2f}%\n"
-
-        return texto
-    except Exception as e:
-        logging.error(f"Error en top movimientos: {e}")
-        return "📊 No se pudieron calcular los movimientos."
-
-# Señales periódicas
-async def analizar_todo():
+# Señal viva cada 14 minutos
+async def heartbeat(bot: Bot, chat_id: str):
     while True:
-        symbols = obtener_top_monedas()
-        for symbol in symbols:
-            senal = analizar_moneda(symbol)
-            if senal:
-                try:
-                    await application.bot.send_message(chat_id=CHAT_ID, text=senal)
-                except Exception as e:
-                    logging.error(f"Error enviando señal: {e}")
-        await asyncio.sleep(300)
+        await bot.send_message(chat_id=chat_id, text="✅ Bot despierto")
+        await asyncio.sleep(ALERT_INTERVAL)
 
-# Keep-alive cada 14 minutos
-async def keep_alive():
-    while True:
-        await asyncio.sleep(840)
-        try:
-            resumen = top_movimientos()
-            await application.bot.send_message(chat_id=CHAT_ID, text=f"✅ Bot activo...\n\n{resumen}", parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Error en keep-alive: {e}")
+# Inicializar bot
+async def main():
+    await load_data()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("nivel", handle_nivel))
+    asyncio.create_task(heartbeat(app.bot, os.getenv("TELEGRAM_CHAT_ID")))
+    await app.run_polling()
 
-# Ejecutar
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(analizar_todo())
-    loop.create_task(keep_alive())
-    application.run_polling()
+    asyncio.run(main())
