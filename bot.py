@@ -17,18 +17,18 @@ CHECK_INTERVAL = 60 * 5
 BASE_URL = "https://api.bitget.com/api/v2/market/candles"
 
 def get_klines(symbol="BTCUSDT", limit=5000):
-    pair = symbol if "_UMCBL" in symbol else symbol + "_UMCBL"
+    bitget_symbol = symbol + "_UMCBL"
     params = {
-        "symbol": pair,
+        "symbol": bitget_symbol,
         "granularity": "3600",
         "limit": str(limit)
     }
     try:
-        r = requests.get(BASE_URL, params=params)
-        r.raise_for_status()
-        result = r.json()
+        response = requests.get(BASE_URL, params=params)
+        response.raise_for_status()
+        result = response.json()
         if "data" not in result or not result["data"]:
-            raise ValueError(f"Sin datos válidos para {symbol}")
+            raise ValueError(f"No hay datos válidos para {symbol}")
         return result["data"][::-1]
     except Exception as e:
         print(f"❌ Error al obtener velas para {symbol}: {e}")
